@@ -19,6 +19,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
+interface FloodRiskData{
+  riskLevel: "low" | "medium" | "high" | "Very high";
+  description: string;
+  recommendations: string[],
+  elevation: number;
+  distanceFromWater: number;
+}
+
 export default function Home() {
 
   const [imagePreview, setImagePreview] = useState<string>("");
@@ -122,11 +130,19 @@ export default function Home() {
 
                   <Button 
                     className="w-full" 
-                    onClick={() => {
+                    onClick={async () => {
+                      if (!latitude || !longitude) {
+                        setAlertMessage('Please enter both latitude and longitude');
+                        setShowAlert(true);
+                        return;
+                      }
                       setAnalysisType('coordinates');
                       setIsLoading(true);
-                      // Add your coordinate analysis logic here
-                      setTimeout(() => setIsLoading(false), 3000); // Simulate API call
+                      try {
+                        await analyzeCoordinates(latitude, longitude);
+                      } finally {
+                        setIsLoading(false);
+                      }
                     }}
                   > 
                     <MapPin className="mr-2 h-4 w-4"/> Analyze Coordinates
@@ -184,7 +200,23 @@ export default function Home() {
                       )}
                     </div>
 
-                    <Button onClick={() => { }} className="w-full">
+                    <Button 
+                      onClick={async () => {
+                        if (!selectedImage) {
+                          setAlertMessage('Please select an image first');
+                          setShowAlert(true);
+                          return;
+                        }
+                        setAnalysisType('image');
+                        setIsLoading(true);
+                        try {
+                          await analyzeImage(selectedImage);
+                        } finally {
+                          setIsLoading(false);
+                        }
+                      }} 
+                      className="w-full"
+                    >
                       <ImageIcon className="mr-2 h-4 w-4" />
                       Analyze Image
                     </Button>
