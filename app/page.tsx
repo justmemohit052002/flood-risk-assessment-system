@@ -1,9 +1,11 @@
 "use client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Globe, MapPin, Shield, Image as ImageIcon, UploadIcon, Camera, TrendingUp, Loader2, Map } from "lucide-react";
+import { Globe, MapPin, Shield, Image as ImageIcon, UploadIcon, Camera, TrendingUp, Loader2, Map, AlertTriangle, CheckCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Separator } from "@/components/ui/separator"
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { useRef, useState, useEffect } from "react";
@@ -19,7 +21,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 
-interface FloodRiskData{
+interface FloodRiskData {
   riskLevel: "low" | "medium" | "high" | "Very high";
   description: string;
   recommendations: string[],
@@ -44,12 +46,75 @@ export default function Home() {
 
   const [analysisType, setAnalysisType] = useState<'coordinates' | 'image'>('coordinates');
 
+  const [aiAnalysis, setAiAnalysis] = useState<string>("");
+  const [floodRisk, setFloodRisk] = useState<FloodRiskData | null>(null);
+
 
   const [map, setMap] = useState<null>(null);
 
   const [mapError, setMapError] = useState(true);
 
   const mapRef = useRef<HTMLDivElement>(null);
+
+  const API_BASE_URL = 'http://localhost:8001'
+
+  // API Code
+  const callAPI = async (endpoint: string, data: any) => {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: "POST",
+      headers: endpoint.includes("coordinates") ? { "Content-Type": "application/json" } : {},
+      body: endpoint.includes("coordinates") ? JSON.stringify(data) : data,
+    });
+
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+    return response.json();
+  }
+
+  const getRiskVarient = (riskLevel: string) => {
+    return riskLevel === 'Very High' || riskLevel === 'High' ?
+      'destructive' : riskLevel === 'Medium' ? 'secondary' : 'default';
+  }
+
+  const getRiskIcon = (riskLevel: string) =>
+    riskLevel === "Very High" || riskLevel === "High" ? (
+      <AlertTriangle className="h-4 w-4" />
+    ) : (
+      <CheckCircle className="h-4 w-4" />
+    )
+
+  const handleImageAnalysis = async () => {
+    if (!selectedImage) {
+      setAlertMessage("Please select an image first");
+      setShowAlert(true);
+      return;
+    }
+    setIsLoading(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("file", selectedImage);
+
+      const apiResponse = await callAPI("/api/analyze/image", formData);
+
+      const riskData: FloodRiskData = {
+        riskLevel: apiResponse.risk_level,
+        description: apiResponse.description,
+        recommendations: apiResponse.recommendations,
+        elevation: apiResponse.elevation,
+        distanceFromWater: apiResponse.distance_from_water,
+      }
+
+      setFloodRisk(riskData);
+      setAiAnalysis(apiResponse.api_analysis || "");
+    } catch (error) {
+      console.error("Error analyszing image", error);
+      setAlertMessage("Error analyzing image. Please check if the backend server is running");
+      setShowAlert(true);
+    }
+    finally {
+      setIsLoading(false);
+    }
+  }
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -85,7 +150,7 @@ export default function Home() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* input section */}
-          
+
           {/* Card */}
 
           <Card className="shadow-lg border-0 bg-white/80 backdrop-blur-sm">
@@ -115,21 +180,21 @@ export default function Home() {
                   <div className="gird grid cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="latitude">Latitude</Label>
-                      <Input type="number" id="latitude" placeholder="Enter latitude"/>
+                      <Input type="number" id="latitude" placeholder="Enter latitude" />
                     </div>
                   </div>
 
-                   <div className="gird grid cols-2 gap-4">
+                  <div className="gird grid cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="latitude">Longitude</Label>
-                      <Input type="number" id="latitude" placeholder="Enter longitude"/>
+                      <Input type="number" id="latitude" placeholder="Enter longitude" />
                     </div>
                   </div>
 
                   {/* Button */}
 
-                  <Button 
-                    className="w-full" 
+                  <Button
+                    className="w-full"
                     onClick={async () => {
                       if (!latitude || !longitude) {
                         setAlertMessage('Please enter both latitude and longitude');
@@ -144,8 +209,8 @@ export default function Home() {
                         setIsLoading(false);
                       }
                     }}
-                  > 
-                    <MapPin className="mr-2 h-4 w-4"/> Analyze Coordinates
+                  >
+                    <MapPin className="mr-2 h-4 w-4" /> Analyze Coordinates
                   </Button>
                 </TabsContent>
 
@@ -168,58 +233,48 @@ export default function Home() {
                             "
                           />
                           <div>
-                          
-                          <p className="text-sm font-medium text-slate-700">Upload terrain image</p>
-                          <p className="text-xs text-slate-500 mt-1"> JPG, PNG, or GIF to 10MB</p>
+
+                            <p className="text-sm font-medium text-slate-700">Upload terrain image</p>
+                            <p className="text-xs text-slate-500 mt-1"> JPG, PNG, or GIF to 10MB</p>
                           </div>
                           <Button
                             onClick={() =>
                               fileInputRef.current?.click()
-                          }
+                            }
                             variant="outline"
                             size="sm"
-                             
+
                           >
                             {" "}
                             <Camera
-                            className="mr-2 h-4 w-4 "
+                              className="mr-2 h-4 w-4 "
                             />
                             Choose Image
                           </Button>
                         </div>
-                      ): (
-                          <div className="space-y-4">
+                      ) : (
+                        <div className="space-y-4">
 
-                            <img src={imagePreview}
-                              alt="Preview"
-                              className="max-h-48
+                          <img src={imagePreview}
+                            alt="Preview"
+                            className="max-h-48
                               mx-auto rounded-lg
                               shadow-sm "
-                            />
-                          </div>
+                          />
+                        </div>
                       )}
                     </div>
 
-                    <Button 
-                      onClick={async () => {
-                        if (!selectedImage) {
-                          setAlertMessage('Please select an image first');
-                          setShowAlert(true);
-                          return;
-                        }
-                        setAnalysisType('image');
-                        setIsLoading(true);
-                        try {
-                          await analyzeImage(selectedImage);
-                        } finally {
-                          setIsLoading(false);
-                        }
-                      }} 
+                    {/* Button to handle iange analysis */}
+                    <Button
+                      onClick={handleImageAnalysis}
+                      disabled={isLoading || !selectedImage}
                       className="w-full"
                     >
                       <ImageIcon className="mr-2 h-4 w-4" />
-                      Analyze Image
+                      {isLoading ? "Analyzing..." : "Analyze Image"}
                     </Button>
+
                   </div>
                 </TabsContent>
 
@@ -234,7 +289,7 @@ export default function Home() {
           bg-white/80 backdrop-blur-sm">
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
-                <TrendingUp className="h-5 w-5 text-green-600"/>
+                <TrendingUp className="h-5 w-5 text-green-600" />
                 Risk Assessment
               </CardTitle>
             </CardHeader>
@@ -245,13 +300,85 @@ export default function Home() {
                 <div className="flex flex-col
                 items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-                                     <p className="text-slate-600">
-                     {analysisType === 'coordinates' ? 'Analyzing coordinates...' : 'Analyzing image...'}
-                   </p>
+                  <p className="text-slate-600">
+                    {analysisType === 'coordinates' ? 'Analyzing coordinates...' : 'Analyzing image...'}
+                  </p>
                 </div>
               )}
 
-               
+              {floodRisk && !isLoading && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {getRiskIcon(floodRisk.riskLevel)}
+                      <span className="font-semibold">Risk Level</span>
+                    </div>
+                    <Badge
+                      variant={getRiskVarient(floodRisk.riskLevel)}
+                      className="text-sm"
+                    >
+                      {floodRisk.riskLevel}
+                    </Badge>
+                  </div>
+                  <p className="text-slate-600 text-sm leading-relaxed">
+                    {floodRisk.description}
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-slate-50 rounded-lg">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {floodRisk.elevation}m
+                      </div>
+                      <div className="text-xs text-slate-500">Elevation</div>
+                    </div>
+
+                    <div className="p-4 bg-slate-50 rounded-lg">
+                      <div className="text-2xl font-bold text-blue-600">
+                        {floodRisk.distanceFromWater}m
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        From Water
+                      </div>
+                    </div>
+                  </div>
+                  {aiAnalysis && (
+                    <>
+                      <Separator />
+                      <div>
+                        <h4 className="font-medium text-slate-700 mb-3">
+                          AI Analysis
+                        </h4>
+                        <div className="p-3 bg-slate-50 rounded-lg">
+                          <p className="text-sm text-slate-600 whitespace-pre-wrap">
+                            {aiAnalysis}
+                          </p>
+                        </div>
+                      </div>
+
+
+                      <div>
+                        <h4 className="font-medium text-slate-700 mb-3">
+                          Recommendations
+                        </h4>
+                        <ul className="space-y-2">
+                          {floodRisk.recommendations.map(
+                            (rec: string, index: number) => (
+                              <li
+                                key={index}
+                                className="flex items-start gap-2 text-sm text-slate-600"
+                              >
+                                <div className="w-1.5 h-1.5 bg-blue-500 rounded-full mt-2 flex-shrink-0" />
+                                {rec}
+                              </li>
+                            )
+                          )}
+                        </ul>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
             </CardContent>
           </Card>
         </div>
@@ -272,9 +399,9 @@ export default function Home() {
                 <h3 className="text-lg font-semibold text-slate-700 mb-2">Map Not Avaialable</h3>
 
                 <p className="text-slate-500 text-center max-w-d"> To enable the interactive map, set up a Google Maps API key in .enev.local </p>
-            </div>
+              </div>
             ) : (
-                <div ref={mapRef} className="w-full h-80 rounded-lg border border-slate-200" />
+              <div ref={mapRef} className="w-full h-80 rounded-lg border border-slate-200" />
             )}
           </CardContent>
 

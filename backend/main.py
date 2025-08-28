@@ -21,12 +21,12 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configure Google Generative AI
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if GOOGLE_API_KEY:
-    generativeai.configure(api_key=GOOGLE_API_KEY)
+# Configure Google Generative AI (prefer GEMINI_API_KEY, fallback to GOOGLE_API_KEY)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+if GEMINI_API_KEY:
+    generativeai.configure(api_key=GEMINI_API_KEY)
 else:
-    logger.warning("GOOGLE_API_KEY not found in environment variables")
+    logger.warning("GEMINI_API_KEY/GOOGLE_API_KEY not found in environment variables")
 
 # FastAPI app
 app = FastAPI(
@@ -235,4 +235,4 @@ async def analyze_image(file: UploadFile = File(...)):
 # Main Entry
 # ---------------------------
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8001, reload=True, log_level="info")
