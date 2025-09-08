@@ -30,7 +30,7 @@ else:
 # FastAPI app
 app = FastAPI(
     title="Flood Detection API",
-    description="Simple flood risk assessment using Gemini AI",
+    description="Flood risk assessment using Gemini AI with detailed analysis",
     version="1.0.0"
 )
 
@@ -48,7 +48,6 @@ class CoordinateRequest(BaseModel):
     latitude: float
     longitude: float
 
-
 class AnalysisResponse(BaseModel):
     success: bool
     risk_level: str
@@ -56,6 +55,7 @@ class AnalysisResponse(BaseModel):
     recommendations: List[str]
     elevation: float = 0.0
     distance_from_water: float = 0.0
+    ai_analysis: str = ""
     message: str = ""
 
 
@@ -66,33 +66,31 @@ class AnalysisResponse(BaseModel):
 def parse_gemini_response(response_text: str) -> dict:
     """Parse Gemini AI response and extract structured data"""
     try:
-        # Try to extract JSON
+        # Try to extract JSON from response
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
             parsed_data = json.loads(json_match.group())
 
-            # Always enforce structure
+            # Ensure all fields exist
             return {
                 "risk_level": parsed_data.get("risk_level", "Medium"),
-                "description": parsed_data.get("description", "Analysis completed"),
-                "recommendations": (
-                    parsed_data.get("recommendations")
-                    if isinstance(parsed_data.get("recommendations"), list)
-                    else ["Monitor weather conditions", "Stay informed about local alerts"]
-                ),
+                "description": parsed_data.get("description", "Analysis completed").strip(),
+                "recommendations": [
+                    str(rec).strip() for rec in parsed_data.get("recommendations", ["Monitor weather conditions", "Stay informed about local alerts"])
+                ],
                 "elevation": float(parsed_data.get("elevation", 50.0)),
                 "distance_from_water": float(parsed_data.get("distance_from_water", 1000.0)),
-                "image_analysis": parsed_data.get("image_analysis", "")
+                "ai_analysis": parsed_data.get("image_analysis", "")
             }
 
-        # If no JSON found
+        # If no JSON found, fallback
         return {
             "risk_level": "Medium",
             "description": "Analysis completed",
             "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
             "elevation": 50.0,
             "distance_from_water": 1000.0,
-            "image_analysis": response_text
+            "ai_analysis": response_text
         }
 
     except Exception as e:
@@ -103,7 +101,7 @@ def parse_gemini_response(response_text: str) -> dict:
             "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
             "elevation": 50.0,
             "distance_from_water": 1000.0,
-            "image_analysis": response_text
+            "ai_analysis": response_text
         }
 
 
@@ -122,7 +120,7 @@ async def root():
     }
 
 
-@app.post("/api/analyze/image")
+@app.post("/api/analyze/image", response_model=AnalysisResponse)
 async def analyze_image(file: UploadFile = File(...)):
     """Analyze flood risk based on uploaded image using Gemini AI"""
     try:
@@ -146,18 +144,29 @@ async def analyze_image(file: UploadFile = File(...)):
             logger.error(f"Error processing image: {str(img_error)}")
             raise HTTPException(status_code=400, detail="Invalid image format")
 
-        # Prompt
+        # Detailed AI prompt
         prompt = """
-        Analyze this terrain image for flood risk assessment.
+        You are an expert disaster risk analyst. Analyze this terrain image in the context of flood risk.
+        Assess visible features such as water bodies, terrain slope, vegetation, urban structures, soil saturation, and drainage conditions.
         Respond ONLY in valid JSON with these fields:
+
         {
           "risk_level": "Low | Medium | High | Very High",
-          "description": "short explanation",
-          "recommendations": ["string1", "string2", "string3"],
+          "description": "2-3 sentence summary of the flood risk",
+          "recommendations": [
+            "At least 3 detailed, practical recommendations for residents, planners, or authorities"
+          ],
           "elevation": number (meters),
           "distance_from_water": number (meters),
-          "image_analysis": "short description of what is visible"
+          "image_analysis": "Detailed description of what is visible in the image"
         }
+
+        Guidelines:
+        - Base recommendations on risk level.
+        - High/Very High: include evacuation and infrastructure suggestions.
+        - Medium: mitigation and preparedness.
+        - Low: monitoring and sustainable land use.
+        - Ensure JSON is valid and parsable.
         """
 
         # Call Gemini AI
@@ -173,13 +182,13 @@ async def analyze_image(file: UploadFile = File(...)):
                 "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
                 "elevation": 50.0,
                 "distance_from_water": 1000.0,
-                "image_analysis": "AI service unavailable"
+                "ai_analysis": "AI service unavailable"
             }
 
         return {
             "success": True,
             **parsed_data,
-            "ai_analysis": parsed_data.get("image_analysis", ""),
+            "ai_analysis": parsed_data.get("ai_analysis", ""),
             "message": "Image analysis completed successfully"
         }
 

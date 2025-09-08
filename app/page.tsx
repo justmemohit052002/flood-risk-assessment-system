@@ -77,6 +77,8 @@ export default function Home() {
       setShowAlert(true);
       return;
     }
+
+    setAnalysisType("image"); // ✅ tell loader this is image analysis
     setIsLoading(true);
 
     try {
@@ -178,8 +180,11 @@ export default function Home() {
                   <Button
                     className="w-full"
                     onClick={async () => {
+                      setAnalysisType("coordinates"); // ✅ loader text for coordinates
+                      setIsLoading(true);
                       setAlertMessage('Coordinate analysis not yet implemented');
                       setShowAlert(true);
+                      setIsLoading(false);
                     }}
                   >
                     <MapPin className="mr-2 h-4 w-4" /> Analyze Coordinates
