@@ -1,6 +1,8 @@
 Flood Analyser App
 ===================
 
+<img width="1895" height="906" alt="Screenshot 2025-09-08 133358" src="https://github.com/user-attachments/assets/8778c124-e5a6-49ae-89de-c0279cbfb1c8" />
+
 Analyse flood risk from an uploaded terrain image using Google Gemini, and present a clear risk summary, key metrics, AI analysis, and safety recommendations. Built with Next.js + TypeScript (frontend) and FastAPI (backend).
 
 Features
