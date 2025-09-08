@@ -17,12 +17,24 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 
+type RiskLevel = "Low" | "Medium" | "High" | "Very High";
+
 interface FloodRiskData {
-  riskLevel: "low" | "medium" | "high" | "Very high";
+  riskLevel: RiskLevel;
   description: string;
   recommendations: string[];
   elevation: number;
   distanceFromWater: number;
+}
+
+interface AnalyzeImageResponse {
+  risk_level: string;
+  description: string;
+  recommendations?: string[] | string;
+  elevation: number;
+  distance_from_water: number;
+  analysis?: string;
+  ai_analysis?: string;
 }
 
 export default function Home() {
@@ -45,16 +57,24 @@ export default function Home() {
   const API_BASE_URL = 'https://flood-risk-assessment-system-backend.onrender.com';
 
   // API Code
-  const callAPI = async (endpoint: string, data: any) => {
+  async function callAPI<TResponse>(
+    endpoint: string,
+    data: FormData | Record<string, unknown>
+  ): Promise<TResponse> {
+    const isCoordinates = endpoint.includes("coordinates");
+    const requestBody: BodyInit | null = isCoordinates
+      ? JSON.stringify(data as Record<string, unknown>)
+      : (data as FormData);
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: "POST",
-      headers: endpoint.includes("coordinates") ? { "Content-Type": "application/json" } : {},
-      body: endpoint.includes("coordinates") ? JSON.stringify(data) : data,
+      headers: isCoordinates ? { "Content-Type": "application/json" } : {},
+      body: requestBody,
     });
 
     if (!response.ok) throw new Error(`API error: ${response.status}`);
-    return response.json();
-  };
+    return (await response.json()) as TResponse;
+  }
 
   const getRiskVarient = (riskLevel: string) => {
     return riskLevel === 'Very High' || riskLevel === 'High'
@@ -85,10 +105,19 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", selectedImage);
 
-      const apiResponse = await callAPI("/api/analyze/image", formData);
+      const apiResponse = await callAPI<AnalyzeImageResponse>("/api/analyze/image", formData);
+
+      const normalizedRisk = (apiResponse.risk_level || "").toString().trim().toLowerCase();
+      const riskMap: Record<string, RiskLevel> = {
+        low: "Low",
+        medium: "Medium",
+        high: "High",
+        "very high": "Very High",
+        veryhigh: "Very High",
+      };
 
       const riskData: FloodRiskData = {
-        riskLevel: apiResponse.risk_level,
+        riskLevel: riskMap[normalizedRisk] ?? "Medium",
         description: apiResponse.description,
         recommendations: Array.isArray(apiResponse.recommendations)
           ? apiResponse.recommendations
@@ -215,7 +244,14 @@ export default function Home() {
                         </div>
                       ) : (
                         <div className="space-y-4">
-                          <img src={imagePreview} alt="Preview" className="max-h-48 mx-auto rounded-lg shadow-sm" />
+                          <Image
+                            src={imagePreview}
+                            alt="Preview"
+                            width={512}
+                            height={320}
+                            className="max-h-48 mx-auto rounded-lg shadow-sm w-auto h-auto"
+                            unoptimized
+                          />
                         </div>
                       )}
                     </div>
