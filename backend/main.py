@@ -12,7 +12,6 @@ import io
 import json
 import re
 from PIL import Image as PILImage
-import random
 
 # Load environment variables
 load_dotenv()
@@ -67,88 +66,45 @@ class AnalysisResponse(BaseModel):
 def parse_gemini_response(response_text: str) -> dict:
     """Parse Gemini AI response and extract structured data"""
     try:
+        # Try to extract JSON
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
-            json_str = json_match.group()
-            parsed_data = json.loads(json_str)
+            parsed_data = json.loads(json_match.group())
 
+            # Always enforce structure
             return {
                 "risk_level": parsed_data.get("risk_level", "Medium"),
                 "description": parsed_data.get("description", "Analysis completed"),
-                "recommendations": parsed_data.get("recommendations", []),
-                "elevation": parsed_data.get("elevation", 50.0),
-                "distance_from_water": parsed_data.get("distance_from_water", 1000.0),
+                "recommendations": (
+                    parsed_data.get("recommendations")
+                    if isinstance(parsed_data.get("recommendations"), list)
+                    else ["Monitor weather conditions", "Stay informed about local alerts"]
+                ),
+                "elevation": float(parsed_data.get("elevation", 50.0)),
+                "distance_from_water": float(parsed_data.get("distance_from_water", 1000.0)),
                 "image_analysis": parsed_data.get("image_analysis", "")
             }
-        else:
-            return {
-                "risk_level": "Medium",
-                "description": "Analysis completed",
-                "recommendations": [
-                    "Monitor weather conditions",
-                    "Stay informed about local alerts"
-                ],
-                "elevation": 50.0,
-                "distance_from_water": 1000.0,
-                "image_analysis": response_text
-            }
+
+        # If no JSON found
+        return {
+            "risk_level": "Medium",
+            "description": "Analysis completed",
+            "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
+            "elevation": 50.0,
+            "distance_from_water": 1000.0,
+            "image_analysis": response_text
+        }
 
     except Exception as e:
         logger.error(f"Error parsing Gemini response: {str(e)}")
         return {
             "risk_level": "Medium",
             "description": "Analysis completed",
-            "recommendations": [
-                "Monitor weather conditions",
-                "Stay informed about local alerts"
-            ],
+            "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
             "elevation": 50.0,
             "distance_from_water": 1000.0,
             "image_analysis": response_text
         }
-
-
-def generate_image_risk_assessment() -> dict:
-    """Generate simulated risk assessment for image analysis"""
-    risk_level = random.choice(["Low", "Medium", "High", "Very High"])
-
-    descriptions = {
-        "Low": "Image analysis shows low flood risk terrain.",
-        "Medium": "Image analysis indicates moderate flood risk factors.",
-        "High": "Image analysis reveals high flood risk characteristics.",
-        "Very High": "Image analysis shows very high flood risk indicators."
-    }
-
-    recommendations = {
-        "Low": [
-            "Continue monitoring terrain changes",
-            "Maintain current drainage systems",
-            "Stay informed about weather patterns"
-        ],
-        "Medium": [
-            "Improve drainage infrastructure",
-            "Consider flood monitoring systems",
-            "Develop emergency response plan"
-        ],
-        "High": [
-            "Install comprehensive flood barriers",
-            "Implement early warning systems",
-            "Consider structural reinforcements"
-        ],
-        "Very High": [
-            "Immediate flood protection measures needed",
-            "Consider relocation to higher ground",
-            "Implement comprehensive emergency protocols"
-        ]
-    }
-
-    return {
-        "risk_level": risk_level,
-        "description": descriptions[risk_level],
-        "recommendations": recommendations[risk_level],
-        "elevation": round(random.uniform(10, 100), 1),
-        "distance_from_water": round(random.uniform(200, 2000), 1)
-    }
 
 
 # ---------------------------
@@ -193,20 +149,15 @@ async def analyze_image(file: UploadFile = File(...)):
         # Prompt
         prompt = """
         Analyze this terrain image for flood risk assessment.
-        Please provide:
-        1. Risk Level (Low/Medium/High/Very High)
-        2. Description of the risk based on what you see
-        3. 3-5 specific recommendations
-        4. Estimated elevation in meters
-        5. Estimated distance from water bodies in meters
-        6. What water bodies or flood risks you can identify in image
-        Format your response as JSON with these fields:
-        - risk_level
-        - description
-        - recommendations (array of strings)
-        - elevation (number)
-        - distance_from_water (number)
-        - image_analysis (string describing what you see)
+        Respond ONLY in valid JSON with these fields:
+        {
+          "risk_level": "Low | Medium | High | Very High",
+          "description": "short explanation",
+          "recommendations": ["string1", "string2", "string3"],
+          "elevation": number (meters),
+          "distance_from_water": number (meters),
+          "image_analysis": "short description of what is visible"
+        }
         """
 
         # Call Gemini AI
@@ -216,8 +167,14 @@ async def analyze_image(file: UploadFile = File(...)):
             parsed_data = parse_gemini_response(response.text)
         except Exception as gemini_error:
             logger.error(f"Error calling Gemini AI: {str(gemini_error)}")
-            parsed_data = generate_image_risk_assessment()
-            parsed_data["image_analysis"] = "Image analysis unavailable, using simulated assessment"
+            parsed_data = {
+                "risk_level": "Medium",
+                "description": "Image analysis unavailable, using simulated defaults",
+                "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
+                "elevation": 50.0,
+                "distance_from_water": 1000.0,
+                "image_analysis": "AI service unavailable"
+            }
 
         return {
             "success": True,
