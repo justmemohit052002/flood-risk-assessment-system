@@ -76,7 +76,11 @@ def parse_gemini_response(response_text: str) -> dict:
                 "risk_level": parsed_data.get("risk_level", "Medium"),
                 "description": parsed_data.get("description", "Analysis completed").strip(),
                 "recommendations": [
-                    str(rec).strip() for rec in parsed_data.get("recommendations", ["Monitor weather conditions", "Stay informed about local alerts"])
+                    str(rec).strip() for rec in parsed_data.get("recommendations", [
+                        "Evacuate to higher ground immediately if flood warning is issued",
+                        "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
+                        "Keep important documents and irreplaceable items in waterproof containers"
+                    ])
                 ],
                 "elevation": float(parsed_data.get("elevation", 50.0)),
                 "distance_from_water": float(parsed_data.get("distance_from_water", 1000.0)),
@@ -87,7 +91,13 @@ def parse_gemini_response(response_text: str) -> dict:
         return {
             "risk_level": "Medium",
             "description": "Analysis completed",
-            "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
+            "recommendations": [
+                "Evacuate to higher ground immediately if flood warning is issued",
+                "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
+                "Keep important documents and irreplaceable items in waterproof containers",
+                "Stay informed through local emergency alerts and weather updates",
+                "Do not attempt to cross flooded areas on foot or in vehicles"
+            ],
             "elevation": 50.0,
             "distance_from_water": 1000.0,
             "ai_analysis": response_text
@@ -98,7 +108,13 @@ def parse_gemini_response(response_text: str) -> dict:
         return {
             "risk_level": "Medium",
             "description": "Analysis completed",
-            "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
+            "recommendations": [
+                "Evacuate to higher ground immediately if flood warning is issued",
+                "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
+                "Keep important documents and irreplaceable items in waterproof containers",
+                "Stay informed through local emergency alerts and weather updates",
+                "Do not attempt to cross flooded areas on foot or in vehicles"
+            ],
             "elevation": 50.0,
             "distance_from_water": 1000.0,
             "ai_analysis": response_text
@@ -146,32 +162,34 @@ async def analyze_image(file: UploadFile = File(...)):
 
         # Detailed AI prompt
         prompt = """
-        You are an expert disaster risk analyst. Analyze this terrain image in the context of flood risk.
+        You are an expert disaster risk analyst specializing in flood safety. Analyze this terrain image in the context of flood risk.
         Assess visible features such as water bodies, terrain slope, vegetation, urban structures, soil saturation, and drainage conditions.
         Respond ONLY in valid JSON with these fields:
 
         {
           "risk_level": "Low | Medium | High | Very High",
-          "description": "2-3 sentence summary of the flood risk",
+          "description": "2-3 sentence summary of the flood risk based on terrain and water features",
           "recommendations": [
-            "At least 3 detailed, practical recommendations for residents, planners, or authorities"
+            "Provide 3-5 specific, ethical, and actionable recommendations prioritizing human safety and life preservation"
           ],
           "elevation": number (meters),
           "distance_from_water": number (meters),
           "image_analysis": "Detailed description of what is visible in the image"
         }
 
-        Guidelines:
-        - Base recommendations on risk level.
-        - High/Very High: include evacuation and infrastructure suggestions.
-        - Medium: mitigation and preparedness.
-        - Low: monitoring and sustainable land use.
+        CRITICAL GUIDELINES FOR RECOMMENDATIONS:
+        - Prioritize life safety and human welfare above all else
+        - Very High/High Risk: Include immediate evacuation procedures, safe routes to higher ground, emergency contact information, assembly points
+        - Medium Risk: Include preparedness measures, emergency kit assembly, evacuation planning, family communication plans
+        - Low Risk: Include monitoring strategies, basic precautions, community awareness
+        - For all risk levels: Include instructions on NOT crossing flooded roads/areas, staying informed through official channels
+        - Recommendations must be practical and implementable by residents and authorities
         - Ensure JSON is valid and parsable.
         """
 
         # Call Gemini AI
         try:
-            model = generativeai.GenerativeModel('gemini-2.0-flash-exp')
+            model = generativeai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content([prompt, image])
             parsed_data = parse_gemini_response(response.text)
         except Exception as gemini_error:
@@ -179,7 +197,13 @@ async def analyze_image(file: UploadFile = File(...)):
             parsed_data = {
                 "risk_level": "Medium",
                 "description": "Image analysis unavailable, using simulated defaults",
-                "recommendations": ["Monitor weather conditions", "Stay informed about local alerts"],
+                "recommendations": [
+                    "Evacuate to higher ground immediately if flood warning is issued",
+                    "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
+                    "Keep important documents and irreplaceable items in waterproof containers",
+                    "Stay informed through local emergency alerts and weather updates",
+                    "Do not attempt to cross flooded areas on foot or in vehicles"
+                ],
                 "elevation": 50.0,
                 "distance_from_water": 1000.0,
                 "ai_analysis": "AI service unavailable"
