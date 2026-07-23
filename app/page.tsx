@@ -54,7 +54,7 @@ export default function Home() {
   const [mapError] = useState(true);
   const mapRef = useRef<HTMLDivElement>(null);
 
-  const API_BASE_URL = 'https://flood-risk-assessment-system-backend.onrender.com';
+  const API_BASE_URL = 'http://localhost:8001';
 
   // API Code
   async function callAPI<TResponse>(

@@ -1,12 +1,12 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import uvicorn
 import os
 from datetime import datetime
 import logging
-import google.generativeai as generativeai
+import google.generativeai as genai
 from dotenv import load_dotenv
 import io
 import json
@@ -20,12 +20,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configure Google Generative AI (prefer GEMINI_API_KEY, fallback to GOOGLE_API_KEY)
+# Configure Google Generative AI
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 if GEMINI_API_KEY:
-    generativeai.configure(api_key=GEMINI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    logger.info("Gemini API key configured successfully")
 else:
-    logger.warning("GEMINI_API_KEY/GOOGLE_API_KEY not found in environment variables")
+    logger.error("GEMINI_API_KEY/GOOGLE_API_KEY not found in environment variables")
 
 # FastAPI app
 app = FastAPI(
@@ -44,10 +45,6 @@ app.add_middleware(
 )
 
 # Pydantic models
-class CoordinateRequest(BaseModel):
-    latitude: float
-    longitude: float
-
 class AnalysisResponse(BaseModel):
     success: bool
     risk_level: str
@@ -57,73 +54,31 @@ class AnalysisResponse(BaseModel):
     distance_from_water: float = 0.0
     ai_analysis: str = ""
     message: str = ""
+    error: Optional[str] = None
 
 
-# ---------------------------
-# Helpers
-# ---------------------------
-
-def parse_gemini_response(response_text: str) -> dict:
-    """Parse Gemini AI response and extract structured data"""
+def parse_gemini_response(response_text: str) -> tuple[dict, Optional[str]]:
+    """Parse Gemini AI response and extract structured data."""
     try:
-        # Try to extract JSON from response
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
         if json_match:
-            parsed_data = json.loads(json_match.group())
-
-            # Ensure all fields exist
-            return {
-                "risk_level": parsed_data.get("risk_level", "Medium"),
-                "description": parsed_data.get("description", "Analysis completed").strip(),
-                "recommendations": [
-                    str(rec).strip() for rec in parsed_data.get("recommendations", [
-                        "Evacuate to higher ground immediately if flood warning is issued",
-                        "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
-                        "Keep important documents and irreplaceable items in waterproof containers"
-                    ])
-                ],
-                "elevation": float(parsed_data.get("elevation", 50.0)),
-                "distance_from_water": float(parsed_data.get("distance_from_water", 1000.0)),
-                "ai_analysis": parsed_data.get("image_analysis", "")
-            }
-
-        # If no JSON found, fallback
-        return {
-            "risk_level": "Medium",
-            "description": "Analysis completed",
-            "recommendations": [
-                "Evacuate to higher ground immediately if flood warning is issued",
-                "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
-                "Keep important documents and irreplaceable items in waterproof containers",
-                "Stay informed through local emergency alerts and weather updates",
-                "Do not attempt to cross flooded areas on foot or in vehicles"
-            ],
-            "elevation": 50.0,
-            "distance_from_water": 1000.0,
-            "ai_analysis": response_text
-        }
-
+            try:
+                parsed_data = json.loads(json_match.group())
+                return {
+                    "risk_level": parsed_data.get("risk_level", "Medium"),
+                    "description": str(parsed_data.get("description", "")).strip(),
+                    "recommendations": [str(r).strip() for r in parsed_data.get("recommendations", [])],
+                    "elevation": float(parsed_data.get("elevation", 0.0)),
+                    "distance_from_water": float(parsed_data.get("distance_from_water", 0.0)),
+                    "ai_analysis": str(parsed_data.get("image_analysis", "")).strip()
+                }, None
+            except json.JSONDecodeError as je:
+                return None, f"Invalid JSON: {str(je)}"
+        else:
+            return None, "No JSON found in response"
     except Exception as e:
-        logger.error(f"Error parsing Gemini response: {str(e)}")
-        return {
-            "risk_level": "Medium",
-            "description": "Analysis completed",
-            "recommendations": [
-                "Evacuate to higher ground immediately if flood warning is issued",
-                "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
-                "Keep important documents and irreplaceable items in waterproof containers",
-                "Stay informed through local emergency alerts and weather updates",
-                "Do not attempt to cross flooded areas on foot or in vehicles"
-            ],
-            "elevation": 50.0,
-            "distance_from_water": 1000.0,
-            "ai_analysis": response_text
-        }
+        return None, f"Parse error: {str(e)}"
 
-
-# ---------------------------
-# API Routes
-# ---------------------------
 
 @app.get("/")
 async def root():
@@ -140,89 +95,112 @@ async def root():
 async def analyze_image(file: UploadFile = File(...)):
     """Analyze flood risk based on uploaded image using Gemini AI"""
     try:
-        logger.info(f"Analyzing image file: {file.filename}")
-
-        # Read file
+        logger.info(f"Analyzing image: {file.filename}")
+        
         image_data = await file.read()
-
-        # Validate file type
+        
         if not file.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Invalid file type. Please upload an image.")
-        if len(image_data) > 10 * 1024 * 1024:  # 10MB limit
-            raise HTTPException(status_code=400, detail="File size exceeds 10MB limit.")
-
-        # Validate image
+            logger.warning(f"Invalid file type: {file.content_type}")
+            raise HTTPException(status_code=400, detail="Invalid file type")
+        if len(image_data) > 10 * 1024 * 1024:
+            logger.warning(f"File too large: {len(image_data)}")
+            raise HTTPException(status_code=400, detail="File size exceeds 10MB")
+        
         try:
             image = PILImage.open(io.BytesIO(image_data))
             if image.mode != "RGB":
                 image = image.convert("RGB")
+            logger.info(f"Image validated: {image.size}")
         except Exception as img_error:
             logger.error(f"Error processing image: {str(img_error)}")
             raise HTTPException(status_code=400, detail="Invalid image format")
-
-        # Detailed AI prompt
+        
         prompt = """
-        You are an expert disaster risk analyst specializing in flood safety. Analyze this terrain image in the context of flood risk.
-        Assess visible features such as water bodies, terrain slope, vegetation, urban structures, soil saturation, and drainage conditions.
-        Respond ONLY in valid JSON with these fields:
+You are an expert disaster risk analyst specializing in flood safety. Analyze this terrain image for flood risk.
 
-        {
-          "risk_level": "Low | Medium | High | Very High",
-          "description": "2-3 sentence summary of the flood risk based on terrain and water features",
-          "recommendations": [
-            "Provide 3-5 specific, ethical, and actionable recommendations prioritizing human safety and life preservation"
-          ],
-          "elevation": number (meters),
-          "distance_from_water": number (meters),
-          "image_analysis": "Detailed description of what is visible in the image"
-        }
+RESPOND WITH VALID JSON ONLY (no other text):
 
-        CRITICAL GUIDELINES FOR RECOMMENDATIONS:
-        - Prioritize life safety and human welfare above all else
-        - Very High/High Risk: Include immediate evacuation procedures, safe routes to higher ground, emergency contact information, assembly points
-        - Medium Risk: Include preparedness measures, emergency kit assembly, evacuation planning, family communication plans
-        - Low Risk: Include monitoring strategies, basic precautions, community awareness
-        - For all risk levels: Include instructions on NOT crossing flooded roads/areas, staying informed through official channels
-        - Recommendations must be practical and implementable by residents and authorities
-        - Ensure JSON is valid and parsable.
-        """
-
-        # Call Gemini AI
+{
+  "risk_level": "Low | Medium | High | Very High",
+  "description": "2-3 sentences about the flood risk",
+  "recommendations": ["3-5 practical safety recommendations"],
+  "elevation": number or 0,
+  "distance_from_water": number or 0,
+  "image_analysis": "Detailed description of visible features"
+}
+"""
+        
+        if not GEMINI_API_KEY:
+            logger.error("Gemini API key not configured")
+            return AnalysisResponse(
+                success=False,
+                risk_level="Unknown",
+                description="API key not configured",
+                recommendations=[],
+                ai_analysis="",
+                message="API configuration error",
+                error="Missing API key"
+            )
+        
         try:
-            model = generativeai.GenerativeModel('gemini-1.5-flash')
+            logger.info("Calling Gemini API")
+            model = genai.GenerativeModel('gemini-3.5-flash')
             response = model.generate_content([prompt, image])
-            parsed_data = parse_gemini_response(response.text)
+            
+            if not response or not response.text:
+                logger.error("Empty Gemini response")
+                return AnalysisResponse(
+                    success=False,
+                    risk_level="Unknown",
+                    description="Empty API response",
+                    recommendations=[],
+                    ai_analysis="",
+                    message="API returned empty response",
+                    error="Empty response"
+                )
+            
+            logger.info(f"Gemini response: {len(response.text)} chars")
+            parsed_data, parse_error = parse_gemini_response(response.text)
+            
+            if parse_error:
+                logger.error(f"Parse error: {parse_error}")
+                return AnalysisResponse(
+                    success=False,
+                    risk_level="Unknown",
+                    description="Failed to parse analysis",
+                    recommendations=[],
+                    ai_analysis=response.text[:300],
+                    message="Failed to parse AI response",
+                    error=parse_error
+                )
+            
+            logger.info(f"Success - Risk: {parsed_data['risk_level']}")
+            return AnalysisResponse(
+                success=True,
+                **parsed_data,
+                message="Analysis completed",
+                error=None
+            )
+            
         except Exception as gemini_error:
-            logger.error(f"Error calling Gemini AI: {str(gemini_error)}")
-            parsed_data = {
-                "risk_level": "Medium",
-                "description": "Image analysis unavailable, using simulated defaults",
-                "recommendations": [
-                    "Evacuate to higher ground immediately if flood warning is issued",
-                    "Gather emergency supplies: water, food, first aid, flashlight, battery radio",
-                    "Keep important documents and irreplaceable items in waterproof containers",
-                    "Stay informed through local emergency alerts and weather updates",
-                    "Do not attempt to cross flooded areas on foot or in vehicles"
-                ],
-                "elevation": 50.0,
-                "distance_from_water": 1000.0,
-                "ai_analysis": "AI service unavailable"
-            }
-
-        return {
-            "success": True,
-            **parsed_data,
-            "ai_analysis": parsed_data.get("ai_analysis", ""),
-            "message": "Image analysis completed successfully"
-        }
-
+            error_msg = f"Gemini API error: {str(gemini_error)}"
+            logger.error(error_msg, exc_info=True)
+            return AnalysisResponse(
+                success=False,
+                risk_level="Unknown",
+                description="AI service error",
+                recommendations=[],
+                ai_analysis="",
+                message=str(gemini_error)[:100],
+                error=error_msg
+            )
+    
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"Server error: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ---------------------------
-# Main Entry
-# ---------------------------
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8001, reload=True, log_level="info")
